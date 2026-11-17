@@ -16,34 +16,37 @@
     input[type="text"] { width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 15px; margin-bottom: 10px; }
     .note { background: #fef3c7; color: #92400e; padding: 8px 12px; border-radius: 6px; font-size: 12px; margin-bottom: 14px; }
     .btn { width: 100%; padding: 12px; background: #0f8a72; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }
-    .btn:disabled { background: #94a3b8; cursor: not-allowed; }
     .divider { text-align: center; margin: 14px 0; color: #64748b; font-size: 14px; }
     
     /* Chat Screen */
     #chat-screen { display: none; flex-direction: column; flex: 1; height: calc(100vh - 72px); }
     .status-bar { background: #e6f4f1; color: #0b6e5b; padding: 8px 16px; font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; }
     #messages { flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; background: #f8fafc; }
-    .msg { max-width: 80%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4; word-break: break-word; }
+    .msg { max-width: 82%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4; word-break: break-word; }
     .msg.me { align-self: flex-end; background: #0f8a72; color: #fff; }
     .msg.them { align-self: flex-start; background: #e2e8f0; color: #1e293b; }
     .msg.sys { align-self: center; background: #fef3c7; color: #92400e; font-size: 12px; }
-    .sender-name { font-size: 11px; font-weight: 700; opacity: 0.8; margin-bottom: 3px; }
+    .sender-name { font-size: 11px; font-weight: 700; opacity: 0.8; margin-bottom: 4px; }
     .download-btn { display: inline-block; margin-top: 6px; padding: 6px 12px; background: #0b6e5b; color: #fff; text-decoration: none; border-radius: 6px; font-size: 13px; font-weight: 600; }
+    audio { max-width: 220px; height: 36px; margin-top: 4px; }
     
     #progress-wrap { display: none; padding: 8px 16px; background: #f1f5f9; border-top: 1px solid #e2e8f0; font-size: 12px; }
     progress { width: 100%; height: 8px; }
     
-    .input-bar { display: flex; gap: 8px; padding: 12px; border-top: 1px solid #e2e8f0; background: #fff; align-items: center; }
-    .input-bar input[type="text"] { margin: 0; flex: 1; }
-    .icon-btn { padding: 10px 14px; background: #e2e8f0; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; }
-    .send-btn { padding: 10px 16px; background: #0f8a72; color: #fff; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; }
+    .input-bar { display: flex; gap: 6px; padding: 10px; border-top: 1px solid #e2e8f0; background: #fff; align-items: center; }
+    .input-bar input[type="text"] { margin: 0; flex: 1; padding: 10px; }
+    .icon-btn { padding: 10px 12px; background: #e2e8f0; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; user-select: none; }
+    .icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .icon-btn.recording { background: #ef4444; color: #fff; animation: pulse 1s infinite; }
+    .send-btn { padding: 10px 14px; background: #0f8a72; color: #fff; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; }
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
   </style>
 </head>
 <body>
   <div class="app">
     <div class="header">
       <h1>Sngi Chat</h1>
-      <p>Private 2-person messenger & P2P file share</p>
+      <p>Private 2-person messenger, voice & file share</p>
     </div>
 
     <!-- Setup Screen -->
@@ -62,7 +65,7 @@
     <div id="chat-screen">
       <div class="status-bar">
         <span id="roomLabel">Code: ------</span>
-        <span id="p2pStatus">P2P: Waiting...</span>
+        <span id="connStatus">Waiting for partner...</span>
       </div>
       <div id="messages"></div>
 
@@ -73,7 +76,8 @@
 
       <div class="input-bar">
         <input type="file" id="fileInput" style="display:none" />
-        <button class="icon-btn" id="attachBtn" title="Send File (P2P)" disabled>📎</button>
+        <button class="icon-btn" id="attachBtn" title="Send File or Photo" disabled>📎</button>
+        <button class="icon-btn" id="micBtn" title="Tap to Record / Stop Voice" disabled>🎤</button>
         <input type="text" id="msgInput" placeholder="Type a message..." />
         <button class="send-btn" id="sendBtn">Send</button>
       </div>
@@ -85,8 +89,10 @@
     const socket = io();
     let myName = 'sngi';
     let currentRoom = '';
+    let isPaired = false;
     let pc = null;
     let dataChannel = null;
+    let p2pReady = false;
 
     const iceServers = {
       iceServers: [
@@ -95,19 +101,19 @@
       ]
     };
 
-    // UI Elements
     const setupScreen = document.getElementById('setup-screen');
     const chatScreen = document.getElementById('chat-screen');
     const messages = document.getElementById('messages');
     const roomLabel = document.getElementById('roomLabel');
-    const p2pStatus = document.getElementById('p2pStatus');
+    const connStatus = document.getElementById('connStatus');
     const attachBtn = document.getElementById('attachBtn');
+    const micBtn = document.getElementById('micBtn');
     const fileInput = document.getElementById('fileInput');
     const progressWrap = document.getElementById('progress-wrap');
     const progressText = document.getElementById('progress-text');
     const progressBar = document.getElementById('progressBar');
 
-    // Create / Join Buttons
+    // Create / Join Room
     document.getElementById('createBtn').onclick = () => {
       myName = document.getElementById('nameInput').value.trim() || 'sngi';
       socket.emit('create-room', { name: myName });
@@ -125,19 +131,27 @@
     socket.on('room-created', ({ code }) => {
       currentRoom = code;
       showChat();
-      addSysMsg(`Share this pairing code with your partner: ${code}`);
+      addSysMsg(`Share this code with your partner: ${code}`);
     });
 
     socket.on('paired', ({ code }) => {
       currentRoom = code;
+      isPaired = true;
       showChat();
-      addSysMsg('Partner connected! Setting up direct P2P file link...');
+      // Unlock file & mic buttons immediately upon pairing!
+      attachBtn.disabled = false;
+      micBtn.disabled = false;
+      connStatus.textContent = 'Connected 🟢';
+      addSysMsg('Partner joined! You can now send messages, voice notes, and files.');
     });
 
     socket.on('partner-left', () => {
-      addSysMsg('Partner disconnected.');
-      p2pStatus.textContent = 'P2P: Disconnected';
+      isPaired = false;
+      p2pReady = false;
       attachBtn.disabled = true;
+      micBtn.disabled = true;
+      connStatus.textContent = 'Partner disconnected';
+      addSysMsg('Partner left the chat.');
     });
 
     function showChat() {
@@ -161,7 +175,7 @@
 
     socket.on('chat-msg', ({ name, text }) => addMsg(name, text, 'them'));
 
-    // WebRTC P2P Setup
+    // WebRTC Direct P2P (Upgrades speed automatically if network allows)
     socket.on('start-webrtc', () => initWebRTC(true));
 
     socket.on('signal', async (data) => {
@@ -204,15 +218,11 @@
       dataChannel.bufferedAmountLowThreshold = 65536;
 
       dataChannel.onopen = () => {
-        p2pStatus.textContent = 'P2P: Ready 🟢';
-        attachBtn.disabled = false;
-        addSysMsg('Direct P2P file transfer ready! Tap 📎 to send any file.');
+        p2pReady = true;
+        connStatus.textContent = 'Direct P2P ⚡';
       };
 
-      dataChannel.onclose = () => {
-        p2pStatus.textContent = 'P2P: Closed';
-        attachBtn.disabled = true;
-      };
+      dataChannel.onclose = () => { p2pReady = false; };
 
       let incoming = { meta: null, chunks: [], received: 0 };
 
@@ -232,7 +242,7 @@
           if (incoming.received >= incoming.meta.size) {
             const blob = new Blob(incoming.chunks, { type: incoming.meta.type });
             const url = URL.createObjectURL(blob);
-            addFileMsg(incoming.meta.sender, incoming.meta.name, incoming.meta.size, url, 'them');
+            renderMediaBubble(incoming.meta.sender, incoming.meta.name, incoming.meta.size, incoming.meta.type, url, 'them');
             progressWrap.style.display = 'none';
             incoming.chunks = [];
           }
@@ -240,72 +250,139 @@
       };
     }
 
-    // Sending Files with Buffer Protection
-    attachBtn.onclick = () => fileInput.click();
+    // Receive Fallback Media via Server Relay
+    socket.on('relay-media', ({ sender, name, size, type, buffer }) => {
+      const blob = new Blob([buffer], { type });
+      const url = URL.createObjectURL(blob);
+      renderMediaBubble(sender, name, size, type, url, 'them');
+    });
 
+    // Unified Send Function (Uses P2P if ready, otherwise instant Server Relay)
+    function sendBlobOrFile(fileOrBlob, fileName, mimeType) {
+      if (!isPaired) return alert('Wait for your partner to join first!');
+      const localUrl = URL.createObjectURL(fileOrBlob);
+
+      // Method 1: Direct WebRTC P2P (Best for huge files)
+      if (p2pReady && dataChannel && dataChannel.readyState === 'open') {
+        dataChannel.send(JSON.stringify({
+          sender: myName, name: fileName, size: fileOrBlob.size, type: mimeType
+        }));
+
+        progressWrap.style.display = 'block';
+        progressText.textContent = `Sending ${fileName}...`;
+        progressBar.value = 0;
+
+        const CHUNK_SIZE = 16384;
+        let offset = 0;
+        const reader = new FileReader();
+
+        reader.onload = (e) => {
+          dataChannel.send(e.target.result);
+          offset += e.target.result.byteLength;
+          progressBar.value = (offset / fileOrBlob.size) * 100;
+
+          if (offset < fileOrBlob.size) {
+            readNext();
+          } else {
+            progressWrap.style.display = 'none';
+            renderMediaBubble(myName, fileName, fileOrBlob.size, mimeType, localUrl, 'me');
+          }
+        };
+
+        function readNext() {
+          if (dataChannel.bufferedAmount > 1024 * 1024) {
+            dataChannel.onbufferedamountlow = () => { dataChannel.onbufferedamountlow = null; readNext(); };
+            return;
+          }
+          reader.readAsArrayBuffer(fileOrBlob.slice(offset, offset + CHUNK_SIZE));
+        }
+        readNext();
+      } else {
+        // Method 2: Instant Relay Fallback (Works even on strict mobile networks up to 25 MB)
+        if (fileOrBlob.size > 24 * 1024 * 1024) {
+          return alert('Direct P2P is blocked by your network, so max file size is 24 MB.');
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          socket.emit('relay-media', {
+            room: currentRoom,
+            sender: myName,
+            name: fileName,
+            size: fileOrBlob.size,
+            type: mimeType,
+            buffer: reader.result
+          });
+          renderMediaBubble(myName, fileName, fileOrBlob.size, mimeType, localUrl, 'me');
+        };
+        reader.readAsArrayBuffer(fileOrBlob);
+      }
+    }
+
+    // File Attachment Handler
+    attachBtn.onclick = () => fileInput.click();
     fileInput.onchange = () => {
       const file = fileInput.files[0];
-      if (!file || !dataChannel || dataChannel.readyState !== 'open') return;
-
-      dataChannel.send(JSON.stringify({
-        sender: myName,
-        name: file.name,
-        size: file.size,
-        type: file.type
-      }));
-
-      progressWrap.style.display = 'block';
-      progressText.textContent = `Sending ${file.name}...`;
-      progressBar.value = 0;
-
-      const CHUNK_SIZE = 16384; // 16 KB
-      let offset = 0;
-      const reader = new FileReader();
-
-      reader.onload = (e) => {
-        dataChannel.send(e.target.result);
-        offset += e.target.result.byteLength;
-        progressBar.value = (offset / file.size) * 100;
-
-        if (offset < file.size) {
-          readNext();
-        } else {
-          progressWrap.style.display = 'none';
-          addFileMsg(myName, file.name, file.size, null, 'me');
-          fileInput.value = '';
-        }
-      };
-
-      function readNext() {
-        if (dataChannel.bufferedAmount > 1024 * 1024) {
-          dataChannel.onbufferedamountlow = () => {
-            dataChannel.onbufferedamountlow = null;
-            readNext();
-          };
-          return;
-        }
-        const slice = file.slice(offset, offset + CHUNK_SIZE);
-        reader.readAsArrayBuffer(slice);
-      }
-
-      readNext();
+      if (!file) return;
+      sendBlobOrFile(file, file.name, file.type || 'application/octet-stream');
+      fileInput.value = '';
     };
 
-    // UI Helpers
+    // Voice Recording Handler (Tap 🎤 to start, Tap ⏹️ to send)
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
+
+    micBtn.onclick = async () => {
+      if (!isRecording) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mediaRecorder = new MediaRecorder(stream);
+          audioChunks = [];
+
+          mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+          mediaRecorder.onstop = () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            sendBlobOrFile(audioBlob, `voice-${Date.now()}.webm`, 'audio/webm');
+            stream.getTracks().forEach(t => t.stop());
+          };
+
+          mediaRecorder.start();
+          isRecording = true;
+          micBtn.textContent = '⏹️';
+          micBtn.classList.add('recording');
+        } catch (err) {
+          alert('Microphone access denied or unavailable.');
+        }
+      } else {
+        mediaRecorder.stop();
+        isRecording = false;
+        micBtn.textContent = '🎤';
+        micBtn.classList.remove('recording');
+      }
+    };
+
+    // UI Render Helpers
     function addMsg(sender, text, who) {
       const div = document.createElement('div');
       div.className = `msg ${who}`;
-      div.innerHTML = `<div class="sender-name">${sender}</div>${escapeHtml(text)}`;
+      div.innerHTML = `<div class="sender-name">${escapeHtml(sender)}</div>${escapeHtml(text)}`;
       messages.appendChild(div);
       messages.scrollTop = messages.scrollHeight;
     }
 
-    function addFileMsg(sender, fileName, size, url, who) {
+    function renderMediaBubble(sender, fileName, size, mimeType, url, who) {
       const div = document.createElement('div');
       div.className = `msg ${who}`;
       const sizeStr = (size / (1024 * 1024)).toFixed(2) + ' MB';
-      div.innerHTML = `<div class="sender-name">${sender}</div>📎 <b>${escapeHtml(fileName)}</b> (${sizeStr})` +
-        (url ? `<br><a class="download-btn" href="${url}" download="${escapeHtml(fileName)}">Download File</a>` : `<br><small>Sent directly via P2P</small>`);
+
+      if (mimeType && mimeType.startsWith('audio/')) {
+        div.innerHTML = `<div class="sender-name">${escapeHtml(sender)} • Voice note</div><audio controls src="${url}"></audio>`;
+      } else if (mimeType && mimeType.startsWith('image/')) {
+        div.innerHTML = `<div class="sender-name">${escapeHtml(sender)}</div><img src="${url}" style="max-width:100%; border-radius:8px; margin-top:4px;" /><br><a class="download-btn" href="${url}" download="${escapeHtml(fileName)}">Download Photo</a>`;
+      } else {
+        div.innerHTML = `<div class="sender-name">${escapeHtml(sender)}</div>📎 <b>${escapeHtml(fileName)}</b> (${sizeStr})<br><a class="download-btn" href="${url}" download="${escapeHtml(fileName)}">Download File</a>`;
+      }
+
       messages.appendChild(div);
       messages.scrollTop = messages.scrollHeight;
     }
@@ -319,7 +396,7 @@
     }
 
     function escapeHtml(str) {
-      return str.replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+      return String(str).replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
     }
   </script>
 </body>
