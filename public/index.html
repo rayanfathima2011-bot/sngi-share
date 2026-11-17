@@ -105,19 +105,6 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    // Your main app WebRTC and chat signaling logic goes here.
-    // Ensure your file metadata sender passes the 'viewOnce' flag:
-    /*
-      const metadata = {
-        type: 'file-meta',
-        name: file.name,
-        size: file.size,
-        fileType: file.type,
-        viewOnce: document.getElementById('view-once-checkbox').checked
-      };
-      dataChannel.send(JSON.stringify(metadata));
-    */
-
     function displayViewOnceMessage(fileUrl) {
       const messagesDiv = document.getElementById('messages');
       const container = document.createElement('div');
@@ -132,7 +119,7 @@
       container.querySelector('.open-photo-btn').onclick = () => {
         showSecureImageModal(fileUrl, () => {
           container.innerHTML = `<span class="expired-text">🔒 Photo opened & expired</span>`;
-          URL.revokeObjectURL(fileUrl); // Wipes image completely from browser memory
+          URL.revokeObjectURL(fileUrl);
         });
       };
       
