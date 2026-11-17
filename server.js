@@ -5,17 +5,17 @@ const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  maxHttpBufferSize: 2.5e7 // 25 MB fallback limit for files & voice notes
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Generate a random 6-character pairing code
 function generateCode() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
 io.on('connection', (socket) => {
-  // 1. User clicks "Create pairing code"
   socket.on('create-room', ({ name }) => {
     const code = generateCode();
     socket.join(code);
@@ -24,7 +24,6 @@ io.on('connection', (socket) => {
     socket.emit('room-created', { code });
   });
 
-  // 2. Partner enters code and clicks "Join chat"
   socket.on('join-room', ({ code, name }) => {
     const cleanCode = (code || '').trim().toUpperCase();
     const room = io.sockets.adapter.rooms.get(cleanCode);
@@ -40,27 +39,28 @@ io.on('connection', (socket) => {
     socket.data.name = name || 'User 2';
     socket.data.room = cleanCode;
 
-    // Notify both users they are paired and trigger WebRTC P2P setup
     io.to(cleanCode).emit('paired', { code: cleanCode });
     socket.to(cleanCode).emit('start-webrtc');
   });
 
-  // 3. Text chat relay
+  // Text messages
   socket.on('chat-msg', ({ room, name, text }) => {
     socket.to(room).emit('chat-msg', { name, text });
   });
 
-  // 4. WebRTC P2P signaling relay (for direct file transfer)
+  // Fallback File & Voice relay (when mobile networks block direct P2P)
+  socket.on('relay-media', (payload) => {
+    socket.to(payload.room).emit('relay-media', payload);
+  });
+
+  // WebRTC P2P signaling
   socket.on('signal', ({ room, data }) => {
     socket.to(room).emit('signal', data);
   });
 
-  // 5. Notify partner on disconnect
   socket.on('disconnect', () => {
     const room = socket.data.room;
-    if (room) {
-      socket.to(room).emit('partner-left');
-    }
+    if (room) socket.to(room).emit('partner-left');
   });
 });
 
