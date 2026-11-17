@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sngi Chat & File Share</title>
+  <style>
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { margin: 0; background: #eef2f5; display: flex; justify-content: center; min-height: 100vh; }
+    .app { width: 100%; max-width: 480px; background: #fff; display: flex; flex-direction: column; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+    .header { background: #0b6e5b; color: #fff; padding: 16px 20px; }
+    .header h1 { margin: 0; font-size: 20px; }
+    .header p { margin: 4px 0 0; font-size: 13px; opacity: 0.85; }
+    .card { margin: 24px 16px; padding: 20px; background: #f9fafb; border-radius: 12px; border: 1px solid #e5e7eb; }
+    label { font-weight: 600; font-size: 14px; display: block; margin-bottom: 6px; }
+    input[type="text"] { width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 15px; margin-bottom: 10px; }
+    .note { background: #fef3c7; color: #92400e; padding: 8px 12px; border-radius: 6px; font-size: 12px; margin-bottom: 14px; }
+    .btn { width: 100%; padding: 12px; background: #0f8a72; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .btn:disabled { background: #94a3b8; cursor: not-allowed; }
+    .divider { text-align: center; margin: 14px 0; color: #64748b; font-size: 14px; }
+    
+    /* Chat Screen */
+    #chat-screen { display: none; flex-direction: column; flex: 1; height: calc(100vh - 72px); }
+    .status-bar { background: #e6f4f1; color: #0b6e5b; padding: 8px 16px; font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; }
+    #messages { flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; background: #f8fafc; }
+    .msg { max-width: 80%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4; word-break: break-word; }
+    .msg.me { align-self: flex-end; background: #0f8a72; color: #fff; }
+    .msg.them { align-self: flex-start; background: #e2e8f0; color: #1e293b; }
+    .msg.sys { align-self: center; background: #fef3c7; color: #92400e; font-size: 12px; }
+    .sender-name { font-size: 11px; font-weight: 700; opacity: 0.8; margin-bottom: 3px; }
+    .download-btn { display: inline-block; margin-top: 6px; padding: 6px 12px; background: #0b6e5b; color: #fff; text-decoration: none; border-radius: 6px; font-size: 13px; font-weight: 600; }
+    
+    #progress-wrap { display: none; padding: 8px 16px; background: #f1f5f9; border-top: 1px solid #e2e8f0; font-size: 12px; }
+    progress { width: 100%; height: 8px; }
+    
+    .input-bar { display: flex; gap: 8px; padding: 12px; border-top: 1px solid #e2e8f0; background: #fff; align-items: center; }
+    .input-bar input[type="text"] { margin: 0; flex: 1; }
+    .icon-btn { padding: 10px 14px; background: #e2e8f0; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; }
+    .send-btn { padding: 10px 16px; background: #0f8a72; color: #fff; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="header">
+      <h1>Sngi Chat</h1>
+      <p>Private 2-person messenger & P2P file share</p>
+    </div>
+
+    <!-- Setup Screen -->
+    <div id="setup-screen" class="card">
+      <label>Your name</label>
+      <input type="text" id="nameInput" value="sngi" placeholder="Enter your name" />
+      <div class="note">Your name is shown only inside this private chat.</div>
+
+      <button class="btn" id="createBtn">Create pairing code</button>
+      <div class="divider">or</div>
+      <input type="text" id="codeInput" placeholder="Enter partner's code" />
+      <button class="btn" id="joinBtn">Join chat</button>
+    </div>
+
+    <!-- Chat Screen -->
+    <div id="chat-screen">
+      <div class="status-bar">
+        <span id="roomLabel">Code: ------</span>
+        <span id="p2pStatus">P2P: Waiting...</span>
+      </div>
+      <div id="messages"></div>
+
+      <div id="progress-wrap">
+        <div id="progress-text">Transferring...</div>
+        <progress id="progressBar" value="0" max="100"></progress>
+      </div>
+
+      <div class="input-bar">
+        <input type="file" id="fileInput" style="display:none" />
+        <button class="icon-btn" id="attachBtn" title="Send File (P2P)" disabled>📎</button>
+        <input type="text" id="msgInput" placeholder="Type a message..." />
+        <button class="send-btn" id="sendBtn">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    let myName = 'sngi';
+    let currentRoom = '';
+    let pc = null;
+    let dataChannel = null;
+
+    const iceServers = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ]
+    };
+
+    // UI Elements
+    const setupScreen = document.getElementById('setup-screen');
+    const chatScreen = document.getElementById('chat-screen');
+    const messages = document.getElementById('messages');
+    const roomLabel = document.getElementById('roomLabel');
+    const p2pStatus = document.getElementById('p2pStatus');
+    const attachBtn = document.getElementById('attachBtn');
+    const fileInput = document.getElementById('fileInput');
+    const progressWrap = document.getElementById('progress-wrap');
+    const progressText = document.getElementById('progress-text');
+    const progressBar = document.getElementById('progressBar');
+
+    // Create / Join Buttons
+    document.getElementById('createBtn').onclick = () => {
+      myName = document.getElementById('nameInput').value.trim() || 'sngi';
+      socket.emit('create-room', { name: myName });
+    };
+
+    document.getElementById('joinBtn').onclick = () => {
+      myName = document.getElementById('nameInput').value.trim() || 'sngi';
+      const code = document.getElementById('codeInput').value.trim();
+      if (!code) return alert('Please enter a pairing code.');
+      socket.emit('join-room', { code, name: myName });
+    };
+
+    socket.on('error-msg', (msg) => alert(msg));
+
+    socket.on('room-created', ({ code }) => {
+      currentRoom = code;
+      showChat();
+      addSysMsg(`Share this pairing code with your partner: ${code}`);
+    });
+
+    socket.on('paired', ({ code }) => {
+      currentRoom = code;
+      showChat();
+      addSysMsg('Partner connected! Setting up direct P2P file link...');
+    });
+
+    socket.on('partner-left', () => {
+      addSysMsg('Partner disconnected.');
+      p2pStatus.textContent = 'P2P: Disconnected';
+      attachBtn.disabled = true;
+    });
+
+    function showChat() {
+      setupScreen.style.display = 'none';
+      chatScreen.style.display = 'flex';
+      roomLabel.textContent = `Code: ${currentRoom}`;
+    }
+
+    // Text Chat
+    document.getElementById('sendBtn').onclick = sendText;
+    document.getElementById('msgInput').onkeypress = (e) => { if (e.key === 'Enter') sendText(); };
+
+    function sendText() {
+      const input = document.getElementById('msgInput');
+      const text = input.value.trim();
+      if (!text) return;
+      addMsg(myName, text, 'me');
+      socket.emit('chat-msg', { room: currentRoom, name: myName, text });
+      input.value = '';
+    }
+
+    socket.on('chat-msg', ({ name, text }) => addMsg(name, text, 'them'));
+
+    // WebRTC P2P Setup
+    socket.on('start-webrtc', () => initWebRTC(true));
+
+    socket.on('signal', async (data) => {
+      if (!pc) initWebRTC(false);
+      if (data.sdp) {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        if (data.sdp.type === 'offer') {
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socket.emit('signal', { room: currentRoom, data: { sdp: pc.localDescription } });
+        }
+      } else if (data.candidate) {
+        await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+      }
+    });
+
+    function initWebRTC(isInitiator) {
+      pc = new RTCPeerConnection(iceServers);
+      pc.onicecandidate = (e) => {
+        if (e.candidate) socket.emit('signal', { room: currentRoom, data: { candidate: e.candidate } });
+      };
+
+      if (isInitiator) {
+        dataChannel = pc.createDataChannel('sngi-files');
+        setupDataChannel();
+        pc.createOffer().then(offer => {
+          pc.setLocalDescription(offer);
+          socket.emit('signal', { room: currentRoom, data: { sdp: pc.localDescription } });
+        });
+      } else {
+        pc.ondatachannel = (e) => {
+          dataChannel = e.channel;
+          setupDataChannel();
+        };
+      }
+    }
+
+    function setupDataChannel() {
+      dataChannel.binaryType = 'arraybuffer';
+      dataChannel.bufferedAmountLowThreshold = 65536;
+
+      dataChannel.onopen = () => {
+        p2pStatus.textContent = 'P2P: Ready 🟢';
+        attachBtn.disabled = false;
+        addSysMsg('Direct P2P file transfer ready! Tap 📎 to send any file.');
+      };
+
+      dataChannel.onclose = () => {
+        p2pStatus.textContent = 'P2P: Closed';
+        attachBtn.disabled = true;
+      };
+
+      let incoming = { meta: null, chunks: [], received: 0 };
+
+      dataChannel.onmessage = (e) => {
+        if (typeof e.data === 'string') {
+          incoming.meta = JSON.parse(e.data);
+          incoming.chunks = [];
+          incoming.received = 0;
+          progressWrap.style.display = 'block';
+          progressText.textContent = `Receiving ${incoming.meta.name}...`;
+          progressBar.value = 0;
+        } else {
+          incoming.chunks.push(e.data);
+          incoming.received += e.data.byteLength;
+          progressBar.value = (incoming.received / incoming.meta.size) * 100;
+
+          if (incoming.received >= incoming.meta.size) {
+            const blob = new Blob(incoming.chunks, { type: incoming.meta.type });
+            const url = URL.createObjectURL(blob);
+            addFileMsg(incoming.meta.sender, incoming.meta.name, incoming.meta.size, url, 'them');
+            progressWrap.style.display = 'none';
+            incoming.chunks = [];
+          }
+        }
+      };
+    }
+
+    // Sending Files with Buffer Protection
+    attachBtn.onclick = () => fileInput.click();
+
+    fileInput.onchange = () => {
+      const file = fileInput.files[0];
+      if (!file || !dataChannel || dataChannel.readyState !== 'open') return;
+
+      dataChannel.send(JSON.stringify({
+        sender: myName,
+        name: file.name,
+        size: file.size,
+        type: file.type
+      }));
+
+      progressWrap.style.display = 'block';
+      progressText.textContent = `Sending ${file.name}...`;
+      progressBar.value = 0;
+
+      const CHUNK_SIZE = 16384; // 16 KB
+      let offset = 0;
+      const reader = new FileReader();
+
+      reader.onload = (e) => {
+        dataChannel.send(e.target.result);
+        offset += e.target.result.byteLength;
+        progressBar.value = (offset / file.size) * 100;
+
+        if (offset < file.size) {
+          readNext();
+        } else {
+          progressWrap.style.display = 'none';
+          addFileMsg(myName, file.name, file.size, null, 'me');
+          fileInput.value = '';
+        }
+      };
+
+      function readNext() {
+        if (dataChannel.bufferedAmount > 1024 * 1024) {
+          dataChannel.onbufferedamountlow = () => {
+            dataChannel.onbufferedamountlow = null;
+            readNext();
+          };
+          return;
+        }
+        const slice = file.slice(offset, offset + CHUNK_SIZE);
+        reader.readAsArrayBuffer(slice);
+      }
+
+      readNext();
+    };
+
+    // UI Helpers
+    function addMsg(sender, text, who) {
+      const div = document.createElement('div');
+      div.className = `msg ${who}`;
+      div.innerHTML = `<div class="sender-name">${sender}</div>${escapeHtml(text)}`;
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    function addFileMsg(sender, fileName, size, url, who) {
+      const div = document.createElement('div');
+      div.className = `msg ${who}`;
+      const sizeStr = (size / (1024 * 1024)).toFixed(2) + ' MB';
+      div.innerHTML = `<div class="sender-name">${sender}</div>📎 <b>${escapeHtml(fileName)}</b> (${sizeStr})` +
+        (url ? `<br><a class="download-btn" href="${url}" download="${escapeHtml(fileName)}">Download File</a>` : `<br><small>Sent directly via P2P</small>`);
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    function addSysMsg(text) {
+      const div = document.createElement('div');
+      div.className = 'msg sys';
+      div.textContent = text;
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+    }
+  </script>
+</body>
+</html>
