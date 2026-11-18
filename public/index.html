@@ -222,8 +222,9 @@
         }
         
         socket.on('chat-msg', async ({ name, text, destruct }) => {
-            const decryptedText = await decryptMessage(text, currentRoom);
-            addMsg(name, decryptedText, 'them', destruct || 0);
+    const decryptedText = await decryptMessage(text, currentRoom);
+    addMsg(name, decryptedText, 'them', destruct || 0);
+});
         });
 
         // File Attachment Handler
