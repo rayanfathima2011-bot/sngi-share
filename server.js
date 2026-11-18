@@ -16,13 +16,30 @@ function generateCode() {
 }
 
 io.on('connection', (socket) => {
-  socket.on('create-room', ({ name }) => {
-    const code = generateCode();
-    socket.join(code);
-    socket.data.name = name || 'User 1';
-    socket.data.room = code;
-    socket.emit('room-created', { code });
-  });
+        
+        // ஒருவர் வியூ ஒன்ஸ் போட்டோவை பார்த்ததும், அதை மற்றவர்களுக்கும் 'Expired' என மாற்ற
+        socket.on('mark-photo-viewed', (data) => {
+            // அனைத்து சாட் பயனர்களுக்கும் இந்த போட்டோ எக்ஸ்பயர்ட் ஆனதை அனுப்புதல்
+            io.emit('photo-expired', data);
+        });
+
+        socket.on('create-room', ({ name }) => {
+            const code = generateCode();
+            socket.join(code);
+            socket.data.name = name || 'User 1';
+            socket.data.room = code;
+            socket.emit('room-created', { code });
+        });
+
+        socket.on('join-room', ({ code, name }) => {
+            const cleanCode = (code || '').trim().toUpperCase();
+            const room = io.sockets.adapter.rooms.get(cleanCode);
+            if (!room || room.size === 0) {
+                return socket.emit('error-msg', 'Invalid or expired pairing code.');
+            }
+            if (room.size >= 2) {
+                return socket.emit('error-msg', 'This private chat already has 2 people.');
+            }
 
   socket.on('join-room', ({ code, name }) => {
     const cleanCode = (code || '').trim().toUpperCase();
