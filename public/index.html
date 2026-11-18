@@ -18,7 +18,6 @@
         .btn { width: 100%; padding: 12px; background: #0f8a72; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }
         .divider { text-align: center; margin: 14px 0; color: #64748b; font-size: 14px; }
         
-        /* Chat Screen */
         #chat-screen { display: none; flex-direction: column; flex: 1; height: calc(100vh - 72px); }
         .status-bar { background: #e6f4f1; color: #0b6e5b; padding: 8px 16px; font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; }
         #messages { flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; background: #f8fafc; }
@@ -28,10 +27,7 @@
         .msg.sys { align-self: center; background: #fef3c7; color: #92400e; font-size: 12px; }
         .sender-name { font-size: 11px; font-weight: 700; opacity: 0.8; margin-bottom: 4px; }
         
-        /* View Once Protection Styles */
         .view-once-bubble { background: #e6f4f1; border: 1px solid #0f8a72; padding: 10px 14px; border-radius: 8px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; color: #0b6e5b; font-weight: 600; }
-        .view-once-img { -webkit-touch-callout: none; user-select: none; max-width: 100%; max-height: 75vh; object-fit: contain; border-radius: 8px; }
-
         .download-btn { display: inline-block; margin-top: 6px; padding: 6px 12px; background: #0b6e5b; color: #fff; text-decoration: none; border-radius: 6px; font-size: 13px; font-weight: 600; }
         audio { max-width: 220px; height: 36px; margin-top: 4px; }
         #progress-wrap { display: none; padding: 8px 16px; background: #f1f5f9; border-top: 1px solid #e2e8f0; font-size: 12px; }
@@ -40,9 +36,8 @@
         .input-bar input[type="text"] { margin: 0; flex: 1; padding: 10px; }
         .icon-btn { padding: 10px 12px; background: #e2e8f0; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; user-select: none; }
         .icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-        .icon-btn.recording { background: #ef4444; color: #fff; animation: pulse 1s infinite; }
+        .icon-btn.recording { background: #ef4444; color: #fff; }
         .send-btn { padding: 10px 14px; background: #0f8a72; color: #fff; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
@@ -52,7 +47,6 @@
             <p>Private 2-person messenger, voice & file share</p>
         </div>
 
-        <!-- Setup Screen -->
         <div id="setup-screen" class="card">
             <label>Your name</label>
             <input type="text" id="nameInput" value="sngi" placeholder="Enter your name" />
@@ -63,7 +57,6 @@
             <button class="btn" id="joinBtn">Join chat</button>
         </div>
 
-        <!-- Chat Screen -->
         <div id="chat-screen">
             <div class="status-bar">
                 <span id="roomLabel">Code: ------</span>
@@ -75,7 +68,6 @@
                 <progress id="progressBar" value="0" max="100"></progress>
             </div>
             
-            <!-- View Once Mode Toggle Checkbox -->
             <div style="padding: 6px 12px; background:#f8fafc; border-top:1px solid #e2e8f0; display:flex; align-items:center; gap:8px; font-size:13px;">
                 <input type="checkbox" id="viewOnceToggle" style="accent-color:#0f8a72;" />
                 <label for="viewOnceToggle" style="margin:0; cursor:pointer; font-weight:500;">Send as View Once Photo 📷</label>
@@ -101,7 +93,7 @@
         let dataChannel = null;
         let p2pReady = false;
 
-        const iceServers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] };
+        const iceServers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
         
         const setupScreen = document.getElementById('setup-screen');
         const chatScreen = document.getElementById('chat-screen');
@@ -116,11 +108,12 @@
         const progressBar = document.getElementById('progressBar');
         const viewOnceToggle = document.getElementById('viewOnceToggle');
 
-        // Create / Join Room
+        // Working click handlers for buttons
         document.getElementById('createBtn').onclick = () => {
             myName = document.getElementById('nameInput').value.trim() || 'sngi';
             socket.emit('create-room', { name: myName });
         };
+        
         document.getElementById('joinBtn').onclick = () => {
             myName = document.getElementById('nameInput').value.trim() || 'sngi';
             const code = document.getElementById('codeInput').value.trim();
@@ -129,11 +122,13 @@
         };
 
         socket.on('error-msg', (msg) => alert(msg));
+        
         socket.on('room-created', ({ code }) => {
             currentRoom = code;
             showChat();
             addSysMsg(`Share this code with your partner: ${code}`);
         });
+        
         socket.on('paired', ({ code }) => {
             currentRoom = code;
             isPaired = true;
@@ -141,13 +136,11 @@
             attachBtn.disabled = false;
             micBtn.disabled = false;
             connStatus.textContent = 'Connected 🟢';
-            addSysMsg('Partner joined! You can now send messages, voice notes, and files.');
+            addSysMsg('Partner joined!');
         });
+
         socket.on('partner-left', () => {
             isPaired = false;
-            p2pReady = false;
-            attachBtn.disabled = true;
-            micBtn.disabled = true;
             connStatus.textContent = 'Partner disconnected';
             addSysMsg('Partner left the chat.');
         });
@@ -158,9 +151,9 @@
             roomLabel.textContent = `Code: ${currentRoom}`;
         }
 
-        // Text Chat
         document.getElementById('sendBtn').onclick = sendText;
         document.getElementById('msgInput').onkeypress = (e) => { if (e.key === 'Enter') sendText(); };
+        
         function sendText() {
             const input = document.getElementById('msgInput');
             const text = input.value.trim();
@@ -169,227 +162,24 @@
             socket.emit('chat-msg', { room: currentRoom, name: myName, text });
             input.value = '';
         }
+        
         socket.on('chat-msg', ({ name, text }) => addMsg(name, text, 'them'));
 
-        // WebRTC Direct P2P
-        socket.on('start-webrtc', () => initWebRTC(true));
-        socket.on('signal', async (data) => {
-            if (!pc) initWebRTC(false);
-            if (data.sdp) {
-                await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-                if (data.sdp.type === 'offer') {
-                    const answer = await pc.createAnswer();
-                    await pc.setLocalDescription(answer);
-                    socket.emit('signal', { room: currentRoom, data: { sdp: pc.localDescription } });
-                }
-            } else if (data.candidate) {
-                await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-            }
-        });
-
-        function initWebRTC(isInitiator) {
-            pc = new RTCPeerConnection(iceServers);
-            pc.onicecandidate = (e) => {
-                if (e.candidate) socket.emit('signal', { room: currentRoom, data: { candidate: e.candidate } });
-            };
-            if (isInitiator) {
-                dataChannel = pc.createDataChannel('sngi-files');
-                setupDataChannel();
-                pc.createOffer().then(offer => {
-                    pc.setLocalDescription(offer);
-                    socket.emit('signal', { room: currentRoom, data: { sdp: pc.localDescription } });
-                });
-            } else {
-                pc.ondatachannel = (e) => {
-                    dataChannel = e.channel;
-                    setupDataChannel();
-                };
-            }
-        }
-
-        function setupDataChannel() {
-            dataChannel.binaryType = 'arraybuffer';
-            dataChannel.bufferedAmountLowThreshold = 65536;
-            dataChannel.onopen = () => { p2pReady = true; connStatus.textContent = 'Direct P2P ⚡'; };
-            dataChannel.onclose = () => { p2pReady = false; };
-            
-            let incoming = { meta: null, chunks: [], received: 0 };
-            dataChannel.onmessage = (e) => {
-                if (typeof e.data === 'string') {
-                    incoming.meta = JSON.parse(e.data);
-                    incoming.chunks = [];
-                    incoming.received = 0;
-                    progressWrap.style.display = 'block';
-                    progressText.textContent = `Receiving ${incoming.meta.name}...`;
-                    progressBar.value = 0;
-                } else {
-                    incoming.chunks.push(e.data);
-                    incoming.received += e.data.byteLength;
-                    progressBar.value = (incoming.received / incoming.meta.size) * 100;
-                    if (incoming.received >= incoming.meta.size) {
-                        const blob = new Blob(incoming.chunks, { type: incoming.meta.type });
-                        const url = URL.createObjectURL(blob);
-                        progressWrap.style.display = 'none';
-                        incoming.chunks = [];
-                        handleIncomingMedia(incoming.meta, url, 'them');
-                    }
-                }
-            };
-        }
-
-        // Relay Media Fallback via Server
-        socket.on('relay-media', ({ sender, name, size, type, buffer, isViewOnce, id }) => {
-            const blob = new Blob([buffer], { type });
-            const url = URL.createObjectURL(blob);
-            handleIncomingMedia({ sender, name, size, type, isViewOnce, id }, url, 'them');
-        });
-
-        // View Once Expired Listener from Partner
-        socket.on('photo-expired', ({ id }) => {
-            const targetElement = document.getElementById(id);
-            if (targetElement) {
-                targetElement.innerHTML = `<span style="color: gray; font-style: italic;">📷 Photo expired (Viewed)</span>`;
-                targetElement.removeAttribute('onclick');
-                targetElement.style.background = "#f1f5f9";
-                targetElement.style.border = "none";
-                targetElement.style.color = "gray";
-            }
-        });
-
-        function handleIncomingMedia(meta, url, who) {
-            if (meta.isViewOnce) {
-                renderViewOnceMessage({
-                    id: meta.id || ('vo_' + Math.random().toString(36).substr(2, 9)),
-                    sender: meta.sender,
-                    fileUrl: url,
-                    viewed: false
-                }, who);
-            } else {
-                renderMediaBubble(meta.sender, meta.name, meta.size, meta.type, url, who);
-            }
-        }
-
-        function sendBlobOrFile(fileOrBlob, fileName, mimeType) {
-            if (!isPaired) return alert('Wait for your partner to join first!');
-            const isViewOnce = viewOnceToggle.checked && mimeType.startsWith('image/');
-            const msgId = 'vo_' + Math.random().toString(36).substr(2, 9);
-            const localUrl = URL.createObjectURL(fileOrBlob);
-
-            if (isViewOnce) {
-                viewOnceToggle.checked = false; // Reset toggle
-                renderViewOnceMessage({ id: msgId, sender: myName, fileUrl: localUrl, viewed: false }, 'me');
-            }
-
-            // Method 1: P2P
-            if (p2pReady && dataChannel && dataChannel.readyState === 'open') {
-                dataChannel.send(JSON.stringify({ sender: myName, name: fileName, size: fileOrBlob.size, type: mimeType, isViewOnce, id: msgId }));
-                progressWrap.style.display = 'block';
-                progressText.textContent = `Sending ${fileName}...`;
-                progressBar.value = 0;
-                
-                const CHUNK_SIZE = 16384;
-                let offset = 0;
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    dataChannel.send(e.target.result);
-                    offset += e.target.result.byteLength;
-                    progressBar.value = (offset / fileOrBlob.size) * 100;
-                    if (offset < fileOrBlob.size) {
-                        readNext();
-                    } else {
-                        progressWrap.style.display = 'none';
-                        if (!isViewOnce) renderMediaBubble(myName, fileName, fileOrBlob.size, mimeType, localUrl, 'me');
-                    }
-                };
-                function readNext() {
-                    if (dataChannel.bufferedAmount > 1024 * 1024) {
-                        dataChannel.onbufferedamountlow = () => { dataChannel.onbufferedamountlow = null; readNext(); };
-                        return;
-                    }
-                    reader.readAsArrayBuffer(fileOrBlob.slice(offset, offset + CHUNK_SIZE));
-                }
-                readNext();
-            } else {
-                // Method 2: Server Relay
-                if (fileOrBlob.size > 24 * 1024 * 1024) {
-                    return alert('Direct P2P is blocked by your network, so max file size is 24 MB.');
-                }
-                const reader = new FileReader();
-                reader.onload = () => {
-                    socket.emit('relay-media', {
-                        room: currentRoom,
-                        sender: myName,
-                        name: fileName,
-                        size: fileOrBlob.size,
-                        type: mimeType,
-                        buffer: reader.result,
-                        isViewOnce,
-                        id: msgId
-                    });
-                    if (!isViewOnce) renderMediaBubble(myName, fileName, fileOrBlob.size, mimeType, localUrl, 'me');
-                };
-                reader.readAsArrayBuffer(fileOrBlob);
-            }
-        }
-
-        // File Attachment Handler
-        attachBtn.onclick = () => fileInput.click();
-        fileInput.onchange = () => {
-            const file = fileInput.files[0];
-            if (!file) return;
-            sendBlobOrFile(file, file.name, file.type || 'application/octet-stream');
-            fileInput.value = '';
-        };
-
-        // Voice Recording Handler
-        let mediaRecorder = null;
-        let audioChunks = [];
-        let isRecording = false;
-        micBtn.onclick = async () => {
-            if (!isRecording) {
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    mediaRecorder = new MediaRecorder(stream);
-                    audioChunks = [];
-                    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
-                    mediaRecorder.onstop = () => {
-                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                        sendBlobOrFile(audioBlob, `voice-${Date.now()}.webm`, 'audio/webm');
-                        stream.getTracks().forEach(t => t.stop());
-                    };
-                    mediaRecorder.start();
-                    isRecording = true;
-                    micBtn.textContent = '⏹️';
-                    micBtn.classList.add('recording');
-                } catch (err) { alert('Microphone access denied or unavailable.'); }
-            } else {
-                mediaRecorder.stop();
-                isRecording = false;
-                micBtn.textContent = '🎤';
-                micBtn.classList.remove('recording');
-            }
-        };
-
-        // View Once UI Render Functions
-        function renderViewOnceMessage(data, who) {
-            const msgDiv = document.createElement('div');
-            msgDiv.className = `msg ${who}`;
-            msgDiv.id = data.id;
-
-            if (data.viewed) {
-                msgDiv.innerHTML = `<div class="sender-name">${escapeHtml(data.sender)}</div><span style="color: gray; font-style: italic;">📷 Photo expired (Already viewed)</span>`;
-            } else {
-                msgDiv.innerHTML = `
-                    <div class="sender-name">${escapeHtml(data.sender)}</div>
-                    <div class="view-once-bubble" onclick="openViewOnceModal('${data.fileUrl}', '${data.id}', this)">
-                        <span>📷 Tap to View Photo (Once)</span>
-                    </div>
-                `;
-            }
-            messages.appendChild(msgDiv);
+        function addMsg(name, text, who) {
+            const div = document.createElement('div');
+            div.className = `msg ${who}`;
+            div.innerHTML = `<div class="sender-name">${name}</div><div>${text}</div>`;
+            messages.appendChild(div);
             messages.scrollTop = messages.scrollHeight;
         }
 
-        function openViewOnceModal(imgUrl, msgId, elementNode) {
-            const modal = document.createElement('div');
-            modal.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.95);z-index:99999;display:flex
+        function addSysMsg(text) {
+            const div = document.createElement('div');
+            div.className = 'msg sys';
+            div.textContent = text;
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+        }
+    </script>
+</body>
+</html>
