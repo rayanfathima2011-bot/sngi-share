@@ -353,3 +353,39 @@
     </script>
 </body>
 </html>
+<script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        let myName = 'sngi';
+        let currentRoom = '';
+        let isPaired = false;
+        
+        // ... (your other setup variables and socket listeners) ...
+
+        // PASTE / REPLACE YOUR addMsg FUNCTION RIGHT HERE:
+        function addMsg(name, text, who, destructSeconds = 0) {
+            const div = document.createElement('div');
+            div.className = `msg ${who}`;
+            
+            let timerBadge = '';
+            if (destructSeconds > 0) {
+                timerBadge = ` <span style="font-size:10px; opacity:0.8;">🔥 ${destructSeconds}s</span>`;
+            }
+            
+            div.innerHTML = `<div class="sender-name">${name}${timerBadge}</div><div>${text}</div>`;
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+
+            if (destructSeconds > 0) {
+                setTimeout(() => {
+                    div.style.transition = "opacity 0.5s ease";
+                    div.style.opacity = "0";
+                    setTimeout(() => div.remove(), 500);
+                }, destructSeconds * 1000);
+            }
+        }
+
+        function addSysMsg(text) {
+            // ... (rest of your functions) ...
+        }
+    </script>
