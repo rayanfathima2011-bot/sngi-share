@@ -27,17 +27,15 @@
         .msg.sys { align-self: center; background: #fef3c7; color: #92400e; font-size: 12px; }
         .sender-name { font-size: 11px; font-weight: 700; opacity: 0.8; margin-bottom: 4px; }
         
-        .view-once-bubble { background: #e6f4f1; border: 1px solid #0f8a72; padding: 10px 14px; border-radius: 8px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; color: #0b6e5b; font-weight: 600; }
-        .download-btn { display: inline-block; margin-top: 6px; padding: 6px 12px; background: #0b6e5b; color: #fff; text-decoration: none; border-radius: 6px; font-size: 13px; font-weight: 600; }
-        audio { max-width: 220px; height: 36px; margin-top: 4px; }
         #progress-wrap { display: none; padding: 8px 16px; background: #f1f5f9; border-top: 1px solid #e2e8f0; font-size: 12px; }
         progress { width: 100%; height: 8px; }
         .input-bar { display: flex; gap: 6px; padding: 10px; border-top: 1px solid #e2e8f0; background: #fff; align-items: center; }
         .input-bar input[type="text"] { margin: 0; flex: 1; padding: 10px; }
         .icon-btn { padding: 10px 12px; background: #e2e8f0; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; user-select: none; }
         .icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-        .icon-btn.recording { background: #ef4444; color: #fff; }
+        .icon-btn.recording { background: #ef4444; color: #fff; animation: pulse 1s infinite; }
         .send-btn { padding: 10px 14px; background: #0f8a72; color: #fff; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
@@ -89,11 +87,6 @@
         let myName = 'sngi';
         let currentRoom = '';
         let isPaired = false;
-        let pc = null;
-        let dataChannel = null;
-        let p2pReady = false;
-
-        const iceServers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
         
         const setupScreen = document.getElementById('setup-screen');
         const chatScreen = document.getElementById('chat-screen');
@@ -103,12 +96,8 @@
         const attachBtn = document.getElementById('attachBtn');
         const micBtn = document.getElementById('micBtn');
         const fileInput = document.getElementById('fileInput');
-        const progressWrap = document.getElementById('progress-wrap');
-        const progressText = document.getElementById('progress-text');
-        const progressBar = document.getElementById('progressBar');
-        const viewOnceToggle = document.getElementById('viewOnceToggle');
 
-        // Working click handlers for buttons
+        // Room creation and joining handlers
         document.getElementById('createBtn').onclick = () => {
             myName = document.getElementById('nameInput').value.trim() || 'sngi';
             socket.emit('create-room', { name: myName });
@@ -141,6 +130,8 @@
 
         socket.on('partner-left', () => {
             isPaired = false;
+            attachBtn.disabled = true;
+            micBtn.disabled = true;
             connStatus.textContent = 'Partner disconnected';
             addSysMsg('Partner left the chat.');
         });
@@ -151,6 +142,7 @@
             roomLabel.textContent = `Code: ${currentRoom}`;
         }
 
+        // Text Messaging
         document.getElementById('sendBtn').onclick = sendText;
         document.getElementById('msgInput').onkeypress = (e) => { if (e.key === 'Enter') sendText(); };
         
@@ -165,6 +157,80 @@
         
         socket.on('chat-msg', ({ name, text }) => addMsg(name, text, 'them'));
 
+        // File Attachment Handler
+        attachBtn.onclick = () => fileInput.click();
+        fileInput.onchange = () => {
+            const file = fileInput.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                socket.emit('relay-media', {
+                    room: currentRoom,
+                    sender: myName,
+                    name: file.name,
+                    size: file.size,
+                    type: file.type || 'application/octet-stream',
+                    buffer: reader.result,
+                    isViewOnce: false
+                });
+                renderMediaBubble(myName, file.name, file.size, file.type, reader.result, 'me');
+            };
+            reader.readAsArrayBuffer(file);
+            fileInput.value = '';
+        };
+
+        socket.on('relay-media', ({ sender, name, size, type, buffer }) => {
+            const blob = new Blob([buffer], { type });
+            const url = URL.createObjectURL(blob);
+            renderMediaBubble(sender, name, size, type, url, 'them');
+        });
+
+        // Voice Recording Handler
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
+        
+        micBtn.onclick = async () => {
+            if (!isRecording) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+                    mediaRecorder.ondataavailable = (e) => { if (e.g.size > 0 || e.data.size > 0) audioChunks.push(e.data); };
+                    mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            socket.emit('relay-media', {
+                                room: currentRoom,
+                                sender: myName,
+                                name: `voice-${Date.now()}.webm`,
+                                size: audioBlob.size,
+                                type: 'audio/webm',
+                                buffer: reader.result,
+                                isViewOnce: false
+                            });
+                            renderMediaBubble(myName, 'Voice Note', audioBlob.size, 'audio/webm', reader.result, 'me');
+                        };
+                        reader.readAsArrayBuffer(audioBlob);
+                        stream.getTracks().forEach(t => t.stop());
+                    };
+                    mediaRecorder.start();
+                    isRecording = true;
+                    micBtn.textContent = '⏹️';
+                    micBtn.classList.add('recording');
+                } catch (err) {
+                    alert('Microphone access denied or unavailable.');
+                }
+            } else {
+                mediaRecorder.stop();
+                isRecording = false;
+                micBtn.textContent = '🎤';
+                micBtn.classList.remove('recording');
+            }
+        };
+
+        // Render Helpers
         function addMsg(name, text, who) {
             const div = document.createElement('div');
             div.className = `msg ${who}`;
@@ -177,6 +243,27 @@
             const div = document.createElement('div');
             div.className = 'msg sys';
             div.textContent = text;
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        function renderMediaBubble(sender, name, size, type, dataOrUrl, who) {
+            const div = document.createElement('div');
+            div.className = `msg ${who}`;
+            let url = dataOrUrl;
+            if (typeof dataOrUrl === 'object') {
+                const blob = new Blob([dataOrUrl], { type });
+                url = URL.createObjectURL(blob);
+            }
+            let content = `<div class="sender-name">${sender}</div>`;
+            if (type.startsWith('image/')) {
+                content += `<img src="${url}" style="max-width:100%; border-radius:8px; margin-top:4px;" />`;
+            } else if (type.startsWith('audio/')) {
+                content += `<audio controls src="${url}"></audio>`;
+            } else {
+                content += `<div>📎 ${name} (${Math.round(size/1024)} KB)</div><a href="${url}" download="${name}" style="color:#fff; display:block; margin-top:4px;">Download</a>`;
+            }
+            div.innerHTML = content;
             messages.appendChild(div);
             messages.scrollTop = messages.scrollHeight;
         }
