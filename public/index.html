@@ -66,7 +66,6 @@
                 <progress id="progressBar" value="0" max="100"></progress>
             </div>
             
-            <!-- Self-Destruct Timer Bar -->
             <div style="padding: 6px 12px; background:#f8fafc; border-top:1px solid #e2e8f0; display:flex; align-items:center; gap:8px; font-size:12px;">
                 <label style="margin:0; font-weight:500;">Self-Destruct:</label>
                 <select id="destructTimer" style="padding:2px 6px; border-radius:6px; border:1px solid #cbd5e1; outline:none;">
@@ -103,7 +102,6 @@
         const micBtn = document.getElementById('micBtn');
         const fileInput = document.getElementById('fileInput');
 
-        // End-to-End Encryption Helpers using Room Code
         async function getCryptoKey(roomCode) {
             const enc = new TextEncoder();
             const keyMaterial = await window.crypto.subtle.importKey(
@@ -159,7 +157,6 @@
             }
         }
 
-        // Room creation and joining handlers
         document.getElementById('createBtn').onclick = () => {
             myName = document.getElementById('nameInput').value.trim() || 'sngi';
             socket.emit('create-room', { name: myName });
@@ -204,7 +201,6 @@
             roomLabel.textContent = `Code: ${currentRoom}`;
         }
 
-        // Encrypted Text Messaging with Self-Destruct Timer
         document.getElementById('sendBtn').onclick = sendText;
         document.getElementById('msgInput').onkeypress = (e) => { if (e.key === 'Enter') sendText(); };
         
@@ -221,12 +217,12 @@
             input.value = '';
         }
         
+        // FIXED: Now properly receives and applies the destruct timer on the receiver's side too!
         socket.on('chat-msg', async ({ name, text, destruct }) => {
             const decryptedText = await decryptMessage(text, currentRoom);
             addMsg(name, decryptedText, 'them', destruct || 0);
         });
 
-        // File Attachment Handler
         attachBtn.onclick = () => fileInput.click();
         fileInput.onchange = () => {
             const file = fileInput.files[0];
@@ -254,7 +250,6 @@
             renderMediaBubble(sender, name, size, type, url, 'them');
         });
 
-        // Voice Recording Handler
         let mediaRecorder = null;
         let audioChunks = [];
         let isRecording = false;
@@ -299,7 +294,6 @@
             }
         };
 
-        // Render Helpers with Self-Destruct Support
         function addMsg(name, text, who, destructSeconds = 0) {
             const div = document.createElement('div');
             div.className = `msg ${who}`;
