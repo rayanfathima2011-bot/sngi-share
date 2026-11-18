@@ -415,4 +415,60 @@
     }
   </script>
 </body>
-</html>
+</html> // சாட்டில் View Once போட்டோ மெசேஜ் வருதலைக் கையாளுதல்
+function renderViewOnceMessage(data) {
+    const messagesDiv = document.getElementById('messages');
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'msg ' + (data.sender === myUsername ? 'me' : 'them');
+    
+    // மெசேஜ் ஐடி மற்றும் வியூ ஸ்டேட்டஸ்
+    const msgId = data.id || ('vo_' + Math.random().toString(36).substr(2, 9));
+    
+    if (data.viewed) {
+        msgDiv.innerHTML = `<div class="sender-name">${data.sender}</div><span style="color: gray; font-style: italic;">📷 Photo expired (Already viewed)</span>`;
+    } else {
+        msgDiv.innerHTML = `
+            <div class="sender-name">${data.sender}</div>
+            <div class="view-once-bubble" onclick="openViewOnceModal('${data.fileUrl}', '${msgId}', this)">
+                <span>📷 Tap to View Photo (Once)</span>
+            </div>
+        `;
+    }
+    messagesDiv.appendChild(msgDiv);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+
+// ஃபுல் ஸ்கிரீன் மோடல் விண்டோவை உருவாக்குதல்
+function openViewOnceModal(imgUrl, msgId, elementNode) {
+    const modal = document.createElement('div');
+    modal.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.95);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;";
+    
+    const img = document.createElement('img');
+    img.src = imgUrl;
+    img.className = 'view-once-img';
+    
+    const closeBtn = document.createElement('button');
+    closeBtn.innerText = "Close & Delete Photo";
+    closeBtn.className = "btn";
+    closeBtn.style.cssText = "margin-top:20px;max-width:220px;background:#ff4444;";
+    
+    closeBtn.onclick = function() {
+        document.body.removeChild(modal);
+        
+        // சாட் பபுிலை 'Expired' ஆக மாற்றவும்
+        elementNode.innerHTML = `<span style="color: gray; font-style: italic;">📷 Photo expired (Viewed)</span>`;
+        elementNode.removeAttribute('onclick');
+        elementNode.style.background = "#f1f5f9";
+        elementNode.style.border = "none";
+        elementNode.style.color = "gray";
+
+        // மற்ற பயனர்களுக்கும் இந்த போட்டோவை எக்ஸ்பயர்ட் செய்ய சாக்ெட் சிக்னல் அனுப்புதல்
+        if (typeof socket !== 'undefined') {
+            socket.emit('mark-photo-viewed', { id: msgId });
+        }
+    };
+
+    modal.appendChild(img);
+    modal.appendChild(closeBtn);
+    document.body.appendChild(modal);
+}
