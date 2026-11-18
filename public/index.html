@@ -66,9 +66,15 @@
                 <progress id="progressBar" value="0" max="100"></progress>
             </div>
             
-            <div style="padding: 6px 12px; background:#f8fafc; border-top:1px solid #e2e8f0; display:flex; align-items:center; gap:8px; font-size:13px;">
-                <input type="checkbox" id="viewOnceToggle" style="accent-color:#0f8a72;" />
-                <label for="viewOnceToggle" style="margin:0; cursor:pointer; font-weight:500;">Send as View Once Photo 📷</label>
+            <!-- Self-Destruct Timer Bar -->
+            <div style="padding: 6px 12px; background:#f8fafc; border-top:1px solid #e2e8f0; display:flex; align-items:center; gap:8px; font-size:12px;">
+                <label style="margin:0; font-weight:500;">Self-Destruct:</label>
+                <select id="destructTimer" style="padding:2px 6px; border-radius:6px; border:1px solid #cbd5e1; outline:none;">
+                    <option value="0">Off</option>
+                    <option value="5">5 Seconds</option>
+                    <option value="10">10 Seconds</option>
+                    <option value="30">30 Seconds</option>
+                </select>
             </div>
 
             <div class="input-bar">
@@ -96,6 +102,62 @@
         const attachBtn = document.getElementById('attachBtn');
         const micBtn = document.getElementById('micBtn');
         const fileInput = document.getElementById('fileInput');
+
+        // End-to-End Encryption Helpers using Room Code
+        async function getCryptoKey(roomCode) {
+            const enc = new TextEncoder();
+            const keyMaterial = await window.crypto.subtle.importKey(
+                "raw",
+                enc.encode(roomCode.padEnd(32, '0').slice(0, 32)),
+                { name: "PBKDF2" },
+                false,
+                ["deriveKey"]
+            );
+            return window.crypto.subtle.deriveKey(
+                {
+                    name: "PBKDF2",
+                    salt: enc.encode("sngi-chat-salt"),
+                    iterations: 100000,
+                    hash: "SHA-256"
+                },
+                keyMaterial,
+                { name: "AES-GCM", length: 256 },
+                false,
+                ["encrypt", "decrypt"]
+            );
+        }
+
+        async function encryptMessage(text, roomCode) {
+            const key = await getCryptoKey(roomCode);
+            const iv = window.crypto.getRandomValues(new Uint8Array(12));
+            const encoded = new TextEncoder().encode(text);
+            const ciphertext = await window.crypto.subtle.encrypt(
+                { name: "AES-GCM", iv: iv },
+                key,
+                encoded
+            );
+            const combined = new Uint8Array(iv.byteLength + ciphertext.byteLength);
+            combined.set(iv);
+            combined.set(new Uint8Array(ciphertext), iv.byteLength);
+            return btoa(String.fromCharCode(...combined));
+        }
+
+        async function decryptMessage(base64Data, roomCode) {
+            try {
+                const key = await getCryptoKey(roomCode);
+                const combined = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+                const iv = combined.slice(0, 12);
+                const ciphertext = combined.slice(12);
+                const decrypted = await window.crypto.subtle.decrypt(
+                    { name: "AES-GCM", iv: iv },
+                    key,
+                    ciphertext
+                );
+                return new TextDecoder().decode(decrypted);
+            } catch (e) {
+                return "[Unable to decrypt message]";
+            }
+        }
 
         // Room creation and joining handlers
         document.getElementById('createBtn').onclick = () => {
@@ -142,20 +204,27 @@
             roomLabel.textContent = `Code: ${currentRoom}`;
         }
 
-        // Text Messaging
+        // Encrypted Text Messaging with Self-Destruct Timer
         document.getElementById('sendBtn').onclick = sendText;
         document.getElementById('msgInput').onkeypress = (e) => { if (e.key === 'Enter') sendText(); };
         
-        function sendText() {
+        async function sendText() {
             const input = document.getElementById('msgInput');
             const text = input.value.trim();
             if (!text) return;
-            addMsg(myName, text, 'me');
-            socket.emit('chat-msg', { room: currentRoom, name: myName, text });
+            
+            const destructSeconds = parseInt(document.getElementById('destructTimer').value) || 0;
+            const encryptedText = await encryptMessage(text, currentRoom);
+            
+            addMsg(myName, text, 'me', destructSeconds);
+            socket.emit('chat-msg', { room: currentRoom, name: myName, text: encryptedText, destruct: destructSeconds });
             input.value = '';
         }
         
-        socket.on('chat-msg', ({ name, text }) => addMsg(name, text, 'them'));
+        socket.on('chat-msg', async ({ name, text, destruct }) => {
+            const decryptedText = await decryptMessage(text, currentRoom);
+            addMsg(name, decryptedText, 'them', destruct || 0);
+        });
 
         // File Attachment Handler
         attachBtn.onclick = () => fileInput.click();
@@ -196,7 +265,7 @@
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     mediaRecorder = new MediaRecorder(stream);
                     audioChunks = [];
-                    mediaRecorder.ondataavailable = (e) => { if (e.g.size > 0 || e.data.size > 0) audioChunks.push(e.data); };
+                    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
                     mediaRecorder.onstop = () => {
                         const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                         const reader = new FileReader();
@@ -230,13 +299,27 @@
             }
         };
 
-        // Render Helpers
-        function addMsg(name, text, who) {
+        // Render Helpers with Self-Destruct Support
+        function addMsg(name, text, who, destructSeconds = 0) {
             const div = document.createElement('div');
             div.className = `msg ${who}`;
-            div.innerHTML = `<div class="sender-name">${name}</div><div>${text}</div>`;
+            
+            let timerBadge = '';
+            if (destructSeconds > 0) {
+                timerBadge = ` <span style="font-size:10px; opacity:0.8;">🔥 ${destructSeconds}s</span>`;
+            }
+            
+            div.innerHTML = `<div class="sender-name">${name}${timerBadge}</div><div>${text}</div>`;
             messages.appendChild(div);
             messages.scrollTop = messages.scrollHeight;
+
+            if (destructSeconds > 0) {
+                setTimeout(() => {
+                    div.style.transition = "opacity 0.5s ease";
+                    div.style.opacity = "0";
+                    setTimeout(() => div.remove(), 500);
+                }, destructSeconds * 1000);
+            }
         }
 
         function addSysMsg(text) {
